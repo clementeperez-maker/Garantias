@@ -8,9 +8,39 @@ from datetime import datetime
 from openpyxl import load_workbook
 
 
+DEFAULT_SETTINGS = {
+    "database_path": "rma_database.json",
+    "excel_path": "rma_estatus.xlsx",
+    "backup_folder": "backups",
+    "excel_headers": [
+        "Folio",
+        "Fecha Recepción",
+        "Cliente",
+        "Teléfono",
+        "Factura",
+        "Producto",
+        "Marca",
+        "Modelo",
+        "Serie",
+        "Falla",
+        "Observaciones",
+        "Responsable",
+        "Estado",
+        "Fecha de Resolución",
+        "Tipo de Resolución",
+        "Producto Nuevo",
+        "Modelo Nuevo",
+        "Serie Nueva",
+    ],
+}
+
+
 def load_settings() -> dict:
+    if not os.path.exists("settings.json"):
+        return DEFAULT_SETTINGS.copy()
     with open("settings.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    return {**DEFAULT_SETTINGS, **data}
 
 
 SET = load_settings()
@@ -101,7 +131,11 @@ def upsert_entry(entry: dict) -> None:
 
     data = _read_db()
     idx = next(
-        (i for i, rec in enumerate(data) if isinstance(rec, dict) and rec.get("folio") == entry["folio"]),
+        (
+            i
+            for i, rec in enumerate(data)
+            if isinstance(rec, dict) and rec.get("folio") == entry["folio"]
+        ),
         None,
     )
     if idx is None:
@@ -188,7 +222,7 @@ def write_or_update_excel_row(entry: dict) -> None:
     from openpyxl.styles import Font, PatternFill
 
     font = Font(name="Arial", size=12)
-    estado_idx = headers.index("Estado") + 1
+    estado_idx = (headers.index("Estado") + 1) if "Estado" in headers else None
     for c in range(1, len(headers) + 1):
         ws.cell(row=target_row, column=c).font = font
 
@@ -201,7 +235,7 @@ def write_or_update_excel_row(entry: dict) -> None:
     elif estado in ["no válida", "no valida"]:
         fill = PatternFill("solid", fgColor="FFC7CE")
 
-    if fill:
+    if fill and estado_idx is not None:
         ws.cell(row=target_row, column=estado_idx).fill = fill
 
     for _ in range(5):
@@ -245,35 +279,46 @@ def import_from_excel_to_db(deduplicate: bool = True, backup: bool = True) -> in
     ]
     missing_headers = [h for h in required_headers if h not in hm]
     if missing_headers:
-        raise ValueError(f"Faltan columnas obligatorias en Excel: {', '.join(missing_headers)}")
+        raise ValueError(
+            f"Faltan columnas obligatorias en Excel: {', '.join(missing_headers)}"
+        )
 
-    count = 0
+    records = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         folio = _to_str(row[hm["Folio"]])
         if not folio:
             continue
 
-        rec = {
-            "folio": folio,
-            "fecha_recepcion": _to_str(row[hm.get("Fecha Recepción", 1)]),
-            "nombre_cliente": _to_str(row[hm.get("Cliente", 2)]),
-            "telefono": _to_str(row[hm.get("Teléfono", 3)]),
-            "factura": _to_str(row[hm.get("Factura", 4)]),
-            "producto": _to_str(row[hm.get("Producto", 5)]),
-            "marca": _to_str(row[hm.get("Marca", 6)]),
-            "modelo": _to_str(row[hm.get("Modelo", 7)]),
-            "serie": _to_str(row[hm.get("Serie", 8)]),
-            "falla": _to_str(row[hm.get("Falla", 9)]),
-            "observaciones": _to_str(row[hm.get("Observaciones", 10)]),
-            "responsable": _to_str(row[hm.get("Responsable", 11)]),
-            "estado": _to_str(row[hm.get("Estado", 12)]) or "En Proceso",
-            "fecha_entrega": _to_str(row[hm.get("Fecha de Resolución", 13)]),
-            "tipo_resolucion": _to_str(row[hm.get("Tipo de Resolución", 14)]),
-            "producto_nuevo": _to_str(row[hm.get("Producto Nuevo", 15)]),
-            "modelo_nuevo": _to_str(row[hm.get("Modelo Nuevo", 16)]),
-            "serie_nueva": _to_str(row[hm.get("Serie Nueva", 17)]),
-        }
-        upsert_entry(rec)
-        count += 1
+        records.append(
+            {
+                "folio": folio,
+                "fecha_recepcion": _to_str(row[hm.get("Fecha Recepción", 1)]),
+                "nombre_cliente": _to_str(row[hm.get("Cliente", 2)]),
+                "telefono": _to_str(row[hm.get("Teléfono", 3)]),
+                "factura": _to_str(row[hm.get("Factura", 4)]),
+                "producto": _to_str(row[hm.get("Producto", 5)]),
+                "marca": _to_str(row[hm.get("Marca", 6)]),
+                "modelo": _to_str(row[hm.get("Modelo", 7)]),
+                "serie": _to_str(row[hm.get("Serie", 8)]),
+                "falla": _to_str(row[hm.get("Falla", 9)]),
+                "observaciones": _to_str(row[hm.get("Observaciones", 10)]),
+                "responsable": _to_str(row[hm.get("Responsable", 11)]),
+                "estado": _to_str(row[hm.get("Estado", 12)]) or "En Proceso",
+                "fecha_entrega": _to_str(row[hm.get("Fecha de Resolución", 13)]),
+                "tipo_resolucion": _to_str(row[hm.get("Tipo de Resolución", 14)]),
+                "producto_nuevo": _to_str(row[hm.get("Producto Nuevo", 15)]),
+                "modelo_nuevo": _to_str(row[hm.get("Modelo Nuevo", 16)]),
+                "serie_nueva": _to_str(row[hm.get("Serie Nueva", 17)]),
+            }
+        )
 
-    return count
+    if deduplicate:
+        unique = {rec["folio"]: rec for rec in records}
+        final_records = list(unique.values())
+    else:
+        final_records = records
+
+    for rec in final_records:
+        upsert_entry(rec)
+
+    return len(final_records)

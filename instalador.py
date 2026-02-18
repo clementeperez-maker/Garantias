@@ -4,7 +4,6 @@ import os
 from openpyxl import Workbook
 
 DEFAULT_SETTINGS = {
-    "admin_password": "Redmayoreo23.",
     "company_name": "REDMAYOREO",
     "logo_path": "logo.png",
     "excel_path": "rma_estatus.xlsx",
@@ -54,6 +53,24 @@ def ensure_excel(path: str, headers: list) -> None:
         wb.save(path)
 
 
+def ensure_admin_password(settings_path: str, settings: dict) -> None:
+    if settings.get("admin_password"):
+        return
+
+    env_password = os.getenv("RMA_ADMIN_PASSWORD")
+    if env_password:
+        settings["admin_password"] = env_password
+    else:
+        settings["admin_password"] = "admin123"
+        print(
+            "⚠️ No se encontró RMA_ADMIN_PASSWORD; se usó contraseña temporal 'admin123'. "
+            "Cámbiala en settings.json o define la variable de entorno."
+        )
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+
+
 def main() -> None:
     settings_path = "settings.json"
     if not os.path.exists(settings_path):
@@ -64,6 +81,7 @@ def main() -> None:
     with open(settings_path, "r", encoding="utf-8") as f:
         settings = json.load(f)
 
+    ensure_admin_password(settings_path, settings)
     ensure_dirs(settings)
     ensure_db(settings["database_path"])
     ensure_excel(settings["excel_path"], settings["excel_headers"])

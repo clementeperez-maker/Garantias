@@ -5,8 +5,8 @@ from rma_database import (
     SET,
     get_all,
     get_by_folio,
-    upsert_entry,
     save_rma_data,
+    upsert_entry,
     write_or_update_excel_row,
 )
 from rma_pdf import (
@@ -29,36 +29,37 @@ from rma_utils import (
 )
 
 PDF_DIR = SET["pdf_folder"]
+ADMIN_PASSWORD = os.getenv("RMA_ADMIN_PASSWORD") or SET.get("admin_password", "")
 
 
 def input_nonempty(prompt: str) -> str:
     while True:
-        v = input(prompt).strip()
-        if v:
-            return v
+        value = input(prompt).strip()
+        if value:
+            return value
 
 
 def input_date(prompt: str) -> str:
     while True:
-        v = input(prompt).strip()
-        if validate_date(v):
-            return v
+        value = input(prompt).strip()
+        if validate_date(value):
+            return value
         print("Formato de fecha inválido. Use DD-MM-YYYY.")
 
 
 def input_phone(prompt: str) -> str:
     while True:
-        v = input(prompt).strip()
-        if validate_phone(v):
-            return v
+        value = input(prompt).strip()
+        if validate_phone(value):
+            return value
         print("Teléfono inválido. Deje vacío o ingrese 7-15 dígitos.")
 
 
 def input_folio(prompt: str) -> str:
     while True:
-        v = input(prompt).strip().upper()
-        if validate_folio(v):
-            return v
+        value = input(prompt).strip().upper()
+        if validate_folio(value):
+            return value
         print("Folio inválido. Formato: RMA-RED-0001")
 
 
@@ -116,8 +117,9 @@ def flow_validate_guarantee() -> None:
         print("Folio no existe en la base de datos.")
         return
 
-    estado_resuelto = (rec.get("estado", "").lower() in ["aprobada", "válida", "valida", "no válida", "no valida"]) or rec.get("tipo_resolucion")
-    if estado_resuelto:
+    estado = rec.get("estado", "").lower()
+    estado_resuelto = estado in ["aprobada", "válida", "valida", "no válida", "no valida"]
+    if estado_resuelto or rec.get("tipo_resolucion"):
         print("La garantía ya fue resuelta.")
         return
 
@@ -220,7 +222,9 @@ def flow_validate_guarantee() -> None:
     elif op == "4":
         update["estado"] = "No válida"
         update["fecha_entrega"] = input_date("Fecha de entrega (DD-MM-YYYY): ")
-        update["detalles_no_valida"] = input_nonempty("Detalles (motivo no válida): ")
+        update["detalles_no_valida"] = input_nonempty(
+            "Detalles (motivo no válida): "
+        )
 
         print("\nVerifique la nueva información capturada:")
         print(f"- Fecha de entrega: {update['fecha_entrega']}")
@@ -307,8 +311,8 @@ def flow_info_rma() -> None:
         ("Responsable", rec.get("responsable", "")),
         ("Estado", rec.get("estado", "En Proceso")),
     ]
-    for k, v in basic:
-        print(f"- {k}: {v}")
+    for key, value in basic:
+        print(f"- {key}: {value}")
 
     est = (rec.get("estado", "En Proceso") or "").lower()
     if est in ["aprobada", "válida", "valida"]:
@@ -339,23 +343,23 @@ def flow_search() -> None:
     q = input("Valor a buscar: ").strip().lower()
 
     results = []
-    for r in get_all():
-        if op == "1" and q in r.get("nombre_cliente", "").lower():
-            results.append(r)
-        elif op == "2" and q in r.get("serie", "").lower():
-            results.append(r)
-        elif op == "3" and q in r.get("factura", "").lower():
-            results.append(r)
-        elif op == "4" and q == r.get("estado", "").lower():
-            results.append(r)
+    for rec in get_all():
+        if op == "1" and q in rec.get("nombre_cliente", "").lower():
+            results.append(rec)
+        elif op == "2" and q in rec.get("serie", "").lower():
+            results.append(rec)
+        elif op == "3" and q in rec.get("factura", "").lower():
+            results.append(rec)
+        elif op == "4" and q == rec.get("estado", "").lower():
+            results.append(rec)
 
     if not results:
         print("Sin resultados.")
         return
 
-    for r in results:
+    for rec in results:
         print(
-            f"- {r.get('folio', '')} | {r.get('nombre_cliente', '')} | {r.get('producto', '')} | {r.get('estado', '')}"
+            f"- {rec.get('folio', '')} | {rec.get('nombre_cliente', '')} | {rec.get('producto', '')} | {rec.get('estado', '')}"
         )
 
     folio_sel = input("\nIngrese el folio exacto a consultar: ").strip()
@@ -365,8 +369,8 @@ def flow_search() -> None:
         return
 
     print("\n=== Detalle del RMA ===")
-    for k, v in elegido.items():
-        print(f"{k}: {v}")
+    for key, value in elegido.items():
+        print(f"{key}: {value}")
 
     while True:
         print("\nOpciones:")
@@ -409,8 +413,8 @@ def flow_search() -> None:
                         )
                 else:
                     print("⚠️ Opción inválida, no se generó ningún PDF.")
-            except Exception as e:
-                print(f"❌ Error al generar PDF: {e}")
+            except Exception as exc:
+                print(f"❌ Error al generar PDF: {exc}")
         elif choice == "2":
             return
         else:
@@ -437,10 +441,11 @@ def login():
     is_admin = False
     if user.lower() == "admin":
         pwd = input("Contraseña de admin: ").strip()
-        if pwd == SET["admin_password"]:
+        if ADMIN_PASSWORD and pwd == ADMIN_PASSWORD:
             is_admin = True
         else:
             print("Contraseña incorrecta. Entrando como usuario normal.")
+
     session_id = f"{user}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     return user, session_id, is_admin
 
